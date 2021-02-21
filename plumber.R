@@ -1,3 +1,5 @@
+library(plumber)
+
 options(plumber.port = 8000)
 
 # plumber.R
