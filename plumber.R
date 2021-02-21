@@ -1,3 +1,5 @@
+options(plumber.port = 8000)
+
 # plumber.R
 
 #* Echo the parameter that was sent in
