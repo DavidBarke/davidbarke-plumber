@@ -2,11 +2,52 @@ library(plumber)
 
 options(plumber.port = 8000)
 
-# plumber.R
+key <- charToRaw(readr::read_rds(file.path(Sys.getenv("AUTH_DB"), "key.rds")))
+
+#' Authenticate incoming requests
+#* @filter authenticate
+function(req, res) {
+  if (req$REQUEST_METHOD == "GET") return(plumber::forward())
+
+  if (!hasName(req, "HTTP_AUTHORIZATION")) {
+    res$status <- 401
+
+    return(list(
+      error = "auth_header_missing",
+      error_msg = "Authorization header required!"
+    ))
+  }
+
+  matches <- stringr::str_match(req$HTTP_AUTHORIZATION, "^Bearer\\s(.*)$")
+  if (is.na(matches)) {
+    res$status <- 401
+
+    return(list(
+      error = "auth_header_wrong_format",
+      error_msg = "Authorization header must be of form 'Bearer <JWT>'!"
+    ))
+  }
+  jwt <- matches[1,2]
+
+  error <- FALSE
+  tryCatch({
+    jose::jwt_decode_hmac(jwt, key)
+  }, error = function(e) {
+    error <<- TRUE
+    res$status <- 401
+  })
+  if (error) return(list(
+    error = "invalid_token",
+    error_msg = "Invalid token!"
+  ))
+
+  plumber::forward()
+}
 
 #* Echo the parameter that was sent in
 #* @param msg The message to echo back.
 #* @get /echo
+#* @post /echo
 function(msg=""){
   list(msg = paste0("The message is: '", msg, "'"))
 }
