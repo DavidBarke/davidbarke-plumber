@@ -1,8 +1,11 @@
 library(plumber)
+library(magrittr)
 
 options(plumber.port = 8000)
 
-key <- charToRaw(readr::read_rds(file.path(Sys.getenv("AUTH_DB"), "key.rds")))
+db_path <- Sys.getenv("DB_PATH")
+
+key <- charToRaw(readr::read_rds(file.path(db_path, "key.rds")))
 
 #' Authenticate incoming requests
 #* @filter authenticate
@@ -31,7 +34,7 @@ function(req, res) {
 
   error <- FALSE
   tryCatch({
-    jose::jwt_decode_hmac(jwt, key)
+    req$jwt <- jose::jwt_decode_hmac(jwt, key)
   }, error = function(e) {
     error <<- TRUE
     res$status <- 401
@@ -44,10 +47,42 @@ function(req, res) {
   plumber::forward()
 }
 
+#* @filter cors
+cors <- function(res) {
+  res$setHeader("Access-Control-Allow-Origin", "*")
+  plumber::forward()
+}
+
+#* Add location of user at a specific timestamp. The user is inferred from the authorization token.
+#* @param lat Latitude
+#* @param lon Longitude
+#* @param ts Timestamp
+#* @post /add_location_ts
+function(req, lat, lon, ts) {
+  user_id <- req$jwt$user_id
+
+  entry <- tibble::tibble(user_id = user_id, lat = lat, lon = lon, time = ts)
+
+  db <- DBI::dbConnect(RSQLite::SQLite(), file.path(db_path, "db.sqlite"))
+
+  on.exit(DBI::dbDisconnect(db))
+
+  DBI::dbAppendTable(db, "location_ts", entry)
+}
+
+#* Get location_ts table
+#* @get /location_ts
+function() {
+  db <- DBI::dbConnect(RSQLite::SQLite(), file.path(db_path, "db.sqlite"))
+
+  on.exit(DBI::dbDisconnect(db))
+
+  DBI::dbReadTable(db, "location_ts")
+}
+
 #* Echo the parameter that was sent in
 #* @param msg The message to echo back.
 #* @get /echo
-#* @post /echo
 function(msg=""){
   list(msg = paste0("The message is: '", msg, "'"))
 }
